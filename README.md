@@ -1,23 +1,30 @@
 ## Wanted Job:heart: 
 ### 원티드 개발 직군 채용공고 웹스크래핑
 
+
 #### 언어 
 * Python 3.6 v
 * DB 서버 환경 Ubuntu
  
 #### 사용 라이브러리 및 리소스
+* requests
 * selenium
-* chromedriver
 * beautifulsoup
 * multiprocessing
+* itertools
+* re
+* json
+* time, csv
+
+* chromedriver
 
 
 #### DB 환경 
 * MongoDB
 * pymongo 라이브러리 이용
 
-[] 서버에 MongoDB 세팅
-[] MongoDB 포트 변경
+ * 서버에 MongoDB 세팅
+ * MongoDB 포트 변경
 
 
 #### 설명
@@ -41,6 +48,8 @@
 
 ###### 채용상세정보 기본 항목
 ```'id', '직군', '지역', '국가', '태그', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지'```
+
+
 
 #### 회고
 
