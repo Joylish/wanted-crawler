@@ -1,10 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.remote.webelement import WebElement
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait as wait
 
 from contextlib import closing
 from multiprocessing import Pool, Manager
@@ -44,22 +40,24 @@ def connectWebDriver(web):
     options.add_argument("disable-gpu")
     options.add_argument("headless")
     options.add_argument("lang=ko_KR")
+
+    # 브라우저 화면 크기에 따라 미디어 쿼리 등에 따라 element 구조가
+    # 달라질 수 있으므로 고정시키고 시작하기
+    options.add_argument('--start-maximized')
+
     options.add_argument(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.125 Safari/537.36")
 
     driver = webdriver.Chrome('chromedriver/chromedriver', options=options)
-
     # 헤더 탐지 피하기
     driver.execute_script("Object.defineProperty(navigator, 'plugins', {get: function() {return[1, 2, 3, 4, 5];},});")
     driver.execute_script("Object.defineProperty(navigator, 'languages', {get: function() {return ['ko-KR', 'ko']}})")
     driver.execute_script(
         "const getParameter = WebGLRenderingContext.getParameter;WebGLRenderingContext.prototype.getParameter = function(parameter) {if (parameter === 37445) {return 'NVIDIA Corporation'} if (parameter === 37446) {return 'NVIDIA GeForce GTX 980 Ti OpenGL Engine';}return getParameter(parameter);};")
 
+    driver.implicitly_wait(2)
     driver.get(web)
-    res = requests.get(web)
-    html = res.text
-    soup = BeautifulSoup(html, "html.parser")
-    driver.implicitly_wait(3)
+    driver.implicitly_wait(2)
 
     return driver
 
@@ -119,7 +117,7 @@ def getRecruitInfo(urlList, allRecruitInfo):
 
     whereElement, tagElements, companyElement, detailElements, deadlineElement, workAreaElement = '', '', '', '', '', ''
     try:
-        whereElement = driver.find_element_by_css_selector('div._29XEnEweQGJCsJXQ6tieoV')
+        whereElement = driver.find_element_by_xpath('/html/body/div[1]/div/div[3]/div[1]/div[1]/div/section[2]/div[1]/span')
         tagElements = driver.find_elements_by_xpath('//div[@class="ObubI7m2AFE5fxlR8Va9t"]/ul/li/a')
         companyElement = driver.find_element_by_xpath('//section[@class="Bfoa2bzuGpxK9ieE1GxhW"]/div/h6/a')
         detailElements= driver.find_elements_by_xpath('//section[@class="_1LnfhLPc7hiSZaaXxRv11H"]/p')
@@ -127,7 +125,7 @@ def getRecruitInfo(urlList, allRecruitInfo):
         workAreaElement = driver.find_element_by_xpath('/html/body/div[1]/div/div[3]/div[1]/div[1]/div[1]/div[2]/section[2]/div[2]/span[2]')
 
     except Exception as error:
-        print('**************** Element Find 에러발생 *********************')
+        print('\n**************** Element Find 에러발생 *********************')
         print(group, url)
         print(error.args)
         with open(r'data/ErrorHistory.json', 'a', encoding='utf-8', newline='') as file:
@@ -139,15 +137,15 @@ def getRecruitInfo(urlList, allRecruitInfo):
             }
             json.dump(error, file, indent=4, ensure_ascii=False)
             file.write('\n,')
-        print('****************************************************************')
+        print('****************************************************************\n')
 
-    pattern = "[∙\n•#\"!:)]"
+    pattern = "[∙\n•#\"!:)/]"
     id = url.replace('https://www.wanted.co.kr/wd/', '')
     region, country = whereElement.text.split('\n.\n') if whereElement else [None, None]
     tags = [re.sub(pattern=pattern, repl='', string=tagElement.text) for tagElement in tagElements] \
         if tagElements else []
     company = companyElement.text if companyElement else None
-    details = [re.sub(pattern=pattern, repl='', string=detailElement.text).strip() \
+    details = [re.sub(pattern=pattern, repl='', string=detailElement.text).strip()\
                    for detailElement in detailElements] if detailElements else []
     deadline = deadlineElement.text if deadlineElement else None
     workArea = workAreaElement.text if workAreaElement else None
@@ -163,7 +161,6 @@ def getRecruitInfo(urlList, allRecruitInfo):
     contents.append(deadline)
     contents.append(workArea)
 
-    # headers = ['id', '직군', '태그', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지']
     headers = ['id', '직군', '지역', '국가', '태그', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지']
 
     recruitInfoDict = {header: value for header, value in zip(headers, contents)}
@@ -195,15 +192,16 @@ def scrapRecruitList(groups):
 
 
 def scrapRecruitInfo():
-    # with open('data/RecruitInfoList.csv', 'r', encoding='UTF-8') as file:
-    #     RecruitInfoListReader = csv.reader(file)
-    #     RecruitInfoList = []
-    #     for RecruitInfo in RecruitInfoListReader:
-    #         if len(RecruitInfo) == 2:
-    #             RecruitInfoList.append(RecruitInfo)
+    with open('data/RecruitInfoList.csv', 'r', encoding='UTF-8') as file:
+        RecruitInfoListReader = csv.reader(file)
+        RecruitInfoList = []
+        for RecruitInfo in RecruitInfoListReader:
+            if len(RecruitInfo) == 2:
+                RecruitInfoList.append(RecruitInfo)
 
-    RecruitInfoList = [['블록체인 개발자', 'https://www.wanted.co.kr/wd/39895'],
-                       ['서버 개발자', 'https://www.wanted.co.kr/wd/16854']]
+    # RecruitInfoList = [['블록체인 개발자', 'https://www.wanted.co.kr/wd/39895'],
+    #                    ['서버 개발자', 'https://www.wanted.co.kr/wd/16854']]
+
     allRecruitInfo = manager.list()
 
     with open('data/RecruitInfo.json', 'w', encoding='UTF-8') as file:
@@ -238,11 +236,11 @@ def scrapRecruitInfo():
 if __name__ == '__main__':
     manager = Manager()
 
-    # print('---------채용직군---------------------------')
-    # jobGroups = getJobGroups()
-    #
-    # print('---------채용공고리스트----------------------')
-    # scrapRecruitList(jobGroups)
+    print('---------채용직군---------------------------')
+    jobGroups = getJobGroups()
+
+    print('---------채용공고리스트----------------------')
+    scrapRecruitList(jobGroups)
 
     print('---------채용공고---------------------------')
     scrapRecruitInfo()
