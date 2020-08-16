@@ -55,7 +55,6 @@ def connectWebDriver(web):
     driver.execute_script(
         "const getParameter = WebGLRenderingContext.getParameter;WebGLRenderingContext.prototype.getParameter = function(parameter) {if (parameter === 37445) {return 'NVIDIA Corporation'} if (parameter === 37446) {return 'NVIDIA GeForce GTX 980 Ti OpenGL Engine';}return getParameter(parameter);};")
 
-    driver.implicitly_wait(2)
     driver.get(web)
     driver.implicitly_wait(2)
 
@@ -92,17 +91,30 @@ def getRecruitInfoList(urlDict, recruitInfos):
 
     driver.quit()
 
-def errorFormatter(error, recruitInfoUrl):
-    return {
-                'id': id,
-                'title': 'Element Find Error',
-                'which': recruitInfoUrl,
-                'detail': error
-            }
 
-def saveError(errorFileDir, element, recruitInfoUrl):
+def scrapRecruitList(groups):
+    recruitInfosByGroup = manager.dict()
+
+    for group in groups:
+        recruitInfosByGroup[''.join(group.keys())] = manager.list()
+
+    with closing(Pool(processes=7)) as pool:
+        pool.starmap(getRecruitInfoList, zip(groups, repeat(recruitInfosByGroup)))
+
+    with open(r'data/RecruitInfoList.csv', 'w', encoding='utf-8', newline='') as file:
+        RecruitInfoListfile = csv.writer(file)
+        for group, urls in recruitInfosByGroup.items():
+            for url in urls:
+                RecruitInfoListfile.writerow([group, url])
+
+    print('직군별 채용공고리스트 url 저장 완료!')
+
+def saveError(errorFileDir, error, recruitInfoUrl):
     with open(errorFileDir, 'a', encoding='utf-8', newline='') as file:
-        errorObject = errorFormatter(element, recruitInfoUrl)
+        errorObject = {
+                'where': recruitInfoUrl,
+                'contents': error
+            }
         json.dump(errorObject, file, indent=4, ensure_ascii=False)
         file.write('\n,')
 
@@ -122,30 +134,30 @@ def getAllElement(driver, elementErrorDir, recruitInfoUrl):
     try:
         companyElement = driver.find_element_by_xpath('//section[@class="Bfoa2bzuGpxK9ieE1GxhW"]/div/h6/a')
     except Exception:
-        saveError(elementErrorDir, 'companyElement', recruitInfoUrl)
+        saveError(elementErrorDir, 'cannot find companyElement', recruitInfoUrl)
     try:
         detailElements = driver.find_elements_by_xpath('//section[@class="_1LnfhLPc7hiSZaaXxRv11H"]/p')
     except Exception:
-        saveError(elementErrorDir, 'detailElements', recruitInfoUrl)
+        saveError(elementErrorDir, 'cannot find detailElements', recruitInfoUrl)
     try:
         tagElements = driver.find_elements_by_xpath('//div[@class="ObubI7m2AFE5fxlR8Va9t"]/ul/li/a')
     except Exception:
-        saveError(elementErrorDir, 'tagElements', recruitInfoUrl)
+        saveError(elementErrorDir, 'cannot find tagElements', recruitInfoUrl)
     try:
         whereElement = driver.find_element_by_xpath(
             '/html/body/div[1]/div/div[3]/div[1]/div[1]/div/section[2]/div[1]/span')
     except Exception:
-        saveError(elementErrorDir, 'whereElement', recruitInfoUrl)
+        saveError(elementErrorDir, 'cannot find whereElement', recruitInfoUrl)
     try:
         workAreaElement = driver.find_element_by_xpath(
             '/html/body/div[1]/div/div[3]/div[1]/div[1]/div[1]/div[2]/section[2]/div[2]/span[2]')
     except Exception:
-        saveError(elementErrorDir, 'workAreaElement', recruitInfoUrl)
+        saveError(elementErrorDir, 'cannot find workAreaElement', recruitInfoUrl)
     try:
         deadlineElement = driver.find_element_by_xpath(
             '/html/body/div[1]/div/div[3]/div[1]/div[1]/div[1]/div[2]/section[2]/div[1]/span[2]')
     except Exception:
-        saveError(elementErrorDir, 'deadlineElement', recruitInfoUrl)
+        saveError(elementErrorDir, 'cannot find deadlineElement', recruitInfoUrl)
 
     return [whereElement, tagElements, companyElement, detailElements, whereElement, deadlineElement, workAreaElement]
 
@@ -164,9 +176,8 @@ def getInfosByElements(elements):
 
 
 def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErrorDir):
+    startTime = time.time()
     group, url = recruitInfoUrl
-    print(group, url)
-
     contents = []
     id = url.replace('https://www.wanted.co.kr/wd/', '')
     contents.append(id)
@@ -178,7 +189,6 @@ def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErr
         return
 
     recruitInfoElements = getAllElement(driver, elementErrorDir, recruitInfoUrl)
-
     region, country, tags, company, details, workArea, deadline = getInfosByElements(recruitInfoElements)
 
     contents.append(id)
@@ -194,26 +204,8 @@ def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErr
     recruitInfo = createrecruitInfo(contents)
     allRecruitInfo.append(recruitInfo)
 
-    print('완료! ', recruitInfo)
+    print(f'{time.time() - startTime}초 걸림! ', recruitInfo)
     driver.quit()
-
-
-def scrapRecruitList(groups):
-    recruitInfosByGroup = manager.dict()
-
-    for group in groups:
-        recruitInfosByGroup[''.join(group.keys())] = manager.list()
-
-    with closing(Pool(processes=7)) as pool:
-        pool.starmap(getRecruitInfoList, zip(groups, repeat(recruitInfosByGroup)))
-
-    with open(r'data/RecruitInfoList.csv', 'w', encoding='utf-8', newline='') as file:
-        RecruitInfoListfile = csv.writer(file)
-        for group, urls in recruitInfosByGroup.items():
-            for url in urls:
-                RecruitInfoListfile.writerow([group, url])
-
-    print('직군별 채용공고리스트 url 저장 완료!')
 
 
 def openJsonFile(fileDir):
@@ -223,7 +215,7 @@ def openJsonFile(fileDir):
 
 def closeJsonFile(fileDir):
     errorInfoFile = open(fileDir, 'r', encoding='UTF-8')
-    errorInfoFilelines = json.load(errorInfoFile)
+    errorInfoFilelines = errorInfoFile.readline()
     errorInfoFile.close()
     with open(fileDir, 'w', encoding='UTF-8') as file:
         file.writelines([item for item in errorInfoFilelines[:-1]])
@@ -234,13 +226,13 @@ def checkError(fileDir):
     errorInfoFile = open(fileDir, 'r', encoding='UTF-8')
     errorInfoFilelines = json.load(errorInfoFile)
     errorInfoFile.close()
-    RecruitInfoList = [errorInfoFileline['which'] for errorInfoFileline in errorInfoFilelines] if len(errorInfoFilelines) > 0 else []
+    RecruitInfoList = [errorInfoFileline['where'] for errorInfoFileline in errorInfoFilelines] if len(errorInfoFilelines) > 0 else []
     return RecruitInfoList
 
 
 def getRecruitInfoURLs():
     RecruitInfoList = []
-    with open('data/RecruitInfoList.csv', 'r', encoding='UTF-8') as file:
+    with open('data/TestRecruitInfoList.csv', 'r', encoding='UTF-8') as file:
         RecruitInfoListReader = csv.reader(file)
         for RecruitInfo in RecruitInfoListReader:
             if len(RecruitInfo) == 2:
@@ -249,11 +241,13 @@ def getRecruitInfoURLs():
 
 
 def scrapRecruitInfo():
+    startTime = time.time()
     allRecruitInfo = manager.list()
     recruitInfoLogsDir = 'data/RecruitInfoLog.json'
     elementErrorDir = f'data/errors/FindElementError.json'
     connectedErrorDir = f'data/errors/ConnectedError.json'
     RecruitInfoURLs = getRecruitInfoURLs()
+
     openJsonFile(recruitInfoLogsDir)
     openJsonFile(elementErrorDir)
 
@@ -268,6 +262,9 @@ def scrapRecruitInfo():
     closeJsonFile(recruitInfoLogsDir)
     with open('data/RecruitInfo.json', 'w', encoding='UTF-8') as file:
         json.dump(list(allRecruitInfo), file, indent=4, ensure_ascii=False)
+
+    print('-------채용상세정보 완료-----------------------------------------------------------------------------')
+    print(f'결과: {time.time() - startTime}초 걸림! ')
 
 
 if __name__ == '__main__':
