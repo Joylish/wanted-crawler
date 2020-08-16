@@ -94,9 +94,7 @@ def getRecruitInfoList(urlDict, recruitInfos):
 
 def errorFormatter(error, recruitInfoUrl):
     return {
-                'id': id,
-                'title': 'Element Find Error',
-                'which': recruitInfoUrl,
+                'where': recruitInfoUrl,
                 'detail': error
             }
 
@@ -223,7 +221,7 @@ def openJsonFile(fileDir):
 
 def closeJsonFile(fileDir):
     errorInfoFile = open(fileDir, 'r', encoding='UTF-8')
-    errorInfoFilelines = json.load(errorInfoFile)
+    errorInfoFilelines = errorInfoFile.readline()
     errorInfoFile.close()
     with open(fileDir, 'w', encoding='UTF-8') as file:
         file.writelines([item for item in errorInfoFilelines[:-1]])
@@ -234,7 +232,7 @@ def checkError(fileDir):
     errorInfoFile = open(fileDir, 'r', encoding='UTF-8')
     errorInfoFilelines = json.load(errorInfoFile)
     errorInfoFile.close()
-    RecruitInfoList = [errorInfoFileline['which'] for errorInfoFileline in errorInfoFilelines] if len(errorInfoFilelines) > 0 else []
+    RecruitInfoList = [errorInfoFileline['where'] for errorInfoFileline in errorInfoFilelines] if len(errorInfoFilelines) > 0 else []
     return RecruitInfoList
 
 
@@ -253,7 +251,10 @@ def scrapRecruitInfo():
     recruitInfoLogsDir = 'data/RecruitInfoLog.json'
     elementErrorDir = f'data/errors/FindElementError.json'
     connectedErrorDir = f'data/errors/ConnectedError.json'
+
+    # RecruitInfoURLs = [['서버 개발자', 'https://www.wanted.co.kr/wd/42191'], ["서버 개발자","https://www.wanted.co.kr/wd/38516"]]
     RecruitInfoURLs = getRecruitInfoURLs()
+
     openJsonFile(recruitInfoLogsDir)
     openJsonFile(elementErrorDir)
 
@@ -266,8 +267,11 @@ def scrapRecruitInfo():
 
     closeJsonFile(elementErrorDir)
     closeJsonFile(recruitInfoLogsDir)
+
     with open('data/RecruitInfo.json', 'w', encoding='UTF-8') as file:
         json.dump(list(allRecruitInfo), file, indent=4, ensure_ascii=False)
+
+    print('채용상세정보 수집 모두 완료!')
 
 
 if __name__ == '__main__':
