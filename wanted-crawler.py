@@ -100,7 +100,7 @@ def errorFormatter(error, recruitInfoUrl):
                 'detail': error
             }
 
-def saveElementError(errorFileDir, element, recruitInfoUrl):
+def saveError(errorFileDir, element, recruitInfoUrl):
     with open(errorFileDir, 'a', encoding='utf-8', newline='') as file:
         errorObject = errorFormatter(element, recruitInfoUrl)
         json.dump(errorObject, file, indent=4, ensure_ascii=False)
@@ -122,36 +122,36 @@ def getAllElement(driver, elementErrorDir, recruitInfoUrl):
     try:
         companyElement = driver.find_element_by_xpath('//section[@class="Bfoa2bzuGpxK9ieE1GxhW"]/div/h6/a')
     except Exception:
-        saveElementError(elementErrorDir, 'companyElement', recruitInfoUrl)
+        saveError(elementErrorDir, 'companyElement', recruitInfoUrl)
     try:
         detailElements = driver.find_elements_by_xpath('//section[@class="_1LnfhLPc7hiSZaaXxRv11H"]/p')
     except Exception:
-        saveElementError(elementErrorDir, 'detailElements', recruitInfoUrl)
+        saveError(elementErrorDir, 'detailElements', recruitInfoUrl)
     try:
         tagElements = driver.find_elements_by_xpath('//div[@class="ObubI7m2AFE5fxlR8Va9t"]/ul/li/a')
     except Exception:
-        saveElementError(elementErrorDir, 'tagElements', recruitInfoUrl)
+        saveError(elementErrorDir, 'tagElements', recruitInfoUrl)
     try:
         whereElement = driver.find_element_by_xpath(
             '/html/body/div[1]/div/div[3]/div[1]/div[1]/div/section[2]/div[1]/span')
     except Exception:
-        saveElementError(elementErrorDir, 'whereElement', recruitInfoUrl)
+        saveError(elementErrorDir, 'whereElement', recruitInfoUrl)
     try:
         workAreaElement = driver.find_element_by_xpath(
             '/html/body/div[1]/div/div[3]/div[1]/div[1]/div[1]/div[2]/section[2]/div[2]/span[2]')
     except Exception:
-        saveElementError(elementErrorDir, 'workAreaElement', recruitInfoUrl)
+        saveError(elementErrorDir, 'workAreaElement', recruitInfoUrl)
     try:
         deadlineElement = driver.find_element_by_xpath(
             '/html/body/div[1]/div/div[3]/div[1]/div[1]/div[1]/div[2]/section[2]/div[1]/span[2]')
     except Exception:
-        saveElementError(elementErrorDir, 'deadlineElement', recruitInfoUrl)
+        saveError(elementErrorDir, 'deadlineElement', recruitInfoUrl)
 
     return [whereElement, tagElements, companyElement, detailElements, whereElement, deadlineElement, workAreaElement]
 
 
 def getInfosByElements(elements):
-    pattern = "[∙\n•#\"!:)/]"
+    pattern = "[∙\n•#\"!:)/■❤️▶✔]"
     region, country = elements[0].text.split('\n.\n') if elements[0] else [None, None]
     tags = [re.sub(pattern=pattern, repl='', string=tagElement.text) for tagElement in elements[1]] \
         if elements[1] else []
@@ -171,11 +171,11 @@ def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErr
     id = url.replace('https://www.wanted.co.kr/wd/', '')
     contents.append(id)
 
-    driver = ''
     try:
         driver = connectWebDriver(url)
     except Exception as error:
-        saveElementError(connectedErrorDir, error, recruitInfoUrl)
+        saveError(connectedErrorDir, error, recruitInfoUrl)
+        return
 
     recruitInfoElements = getAllElement(driver, elementErrorDir, recruitInfoUrl)
 
