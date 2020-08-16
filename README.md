@@ -5,7 +5,7 @@
 #### 언어 
 * Python 3.6 v
 * DB 서버 환경 Ubuntu
- 
+
 #### 사용 라이브러리 및 리소스
 * requests
 * selenium
@@ -49,7 +49,59 @@
 ###### 채용상세정보 기본 항목
 ```'id', '직군', '지역', '국가', '태그', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지'```
 
+#### 정리 자료
 
+![1](./images/1.png)
+
+![2](./images/2.png)
+
+![3](./images/3.png)
+
+![4](./images/4.png)
+
+![5](./images/5.png)
+
+
+
+![6](./images/6.png)
+
+![7](./images/7.png)
+
+![8](./images/8.png)
+
+![9](./images/9.png)
+
+![10](./images/10.png)
+
+![11](./images/11.png)
+
+![12](./images/12.png)
+
+![13](./images/13.png)
+
+![14](./images/14.png)
+
+![15](./images/15.png)
+
+![16](./images/16.png)
+
+![17](./images/17.png)
+
+![18](./images/18.png)
+
+![19](./images/19.png)
+
+![20](./images/20.png)
+
+![21](./images/21.png)
+
+![22](./images/22.png)
+
+![23](./images/23.png)
+
+![24](./images/24.png)
+
+![25](./images/25.png)
 
 #### 회고
 

@@ -53,7 +53,9 @@ def connectWebDriver(web):
     driver.execute_script("Object.defineProperty(navigator, 'plugins', {get: function() {return[1, 2, 3, 4, 5];},});")
     driver.execute_script("Object.defineProperty(navigator, 'languages', {get: function() {return ['ko-KR', 'ko']}})")
     driver.execute_script(
-        "const getParameter = WebGLRenderingContext.getParameter;WebGLRenderingContext.prototype.getParameter = function(parameter) {if (parameter === 37445) {return 'NVIDIA Corporation'} if (parameter === 37446) {return 'NVIDIA GeForce GTX 980 Ti OpenGL Engine';}return getParameter(parameter);};")
+        "const getParameter = WebGLRenderingContext.getParameter;WebGLRenderingContext.prototype.getParameter "
+        "= function(parameter) {if (parameter === 37445) {return 'NVIDIA Corporation'} if (parameter === 37446) "
+        "{return 'NVIDIA GeForce GTX 980 Ti OpenGL Engine';}return getParameter(parameter);};")
 
     driver.get(web)
     driver.implicitly_wait(2)
@@ -158,7 +160,6 @@ def getAllElement(driver, elementErrorDir, recruitInfoUrl):
             '/html/body/div[1]/div/div[3]/div[1]/div[1]/div[1]/div[2]/section[2]/div[1]/span[2]')
     except Exception:
         saveError(elementErrorDir, 'cannot find deadlineElement', recruitInfoUrl)
-
     return [whereElement, tagElements, companyElement, detailElements, whereElement, deadlineElement, workAreaElement]
 
 
@@ -181,16 +182,13 @@ def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErr
     contents = []
     id = url.replace('https://www.wanted.co.kr/wd/', '')
     contents.append(id)
-
     try:
         driver = connectWebDriver(url)
     except Exception as error:
         saveError(connectedErrorDir, error, recruitInfoUrl)
         return
-
     recruitInfoElements = getAllElement(driver, elementErrorDir, recruitInfoUrl)
     region, country, tags, company, details, workArea, deadline = getInfosByElements(recruitInfoElements)
-
     contents.append(id)
     contents.append(group)
     contents.append(region)
@@ -200,10 +198,8 @@ def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErr
     contents.extend(details)
     contents.append(deadline)
     contents.append(workArea)
-
     recruitInfo = createrecruitInfo(contents)
     allRecruitInfo.append(recruitInfo)
-
     print(f'{time.time() - startTime}초 걸림! ', recruitInfo)
     driver.quit()
 
@@ -242,6 +238,7 @@ def getRecruitInfoURLs():
 
 def scrapRecruitInfo():
     startTime = time.time()
+
     allRecruitInfo = manager.list()
     recruitInfoLogsDir = 'data/RecruitInfoLog.json'
     elementErrorDir = f'data/errors/FindElementError.json'
@@ -253,7 +250,7 @@ def scrapRecruitInfo():
 
     while len(RecruitInfoURLs) > 0:
         openJsonFile(connectedErrorDir)
-        with closing(Pool(processes=7)) as pool:
+        with closing(Pool(processes=5)) as pool:
             pool.starmap(getRecruitInfo, zip(RecruitInfoURLs, repeat(allRecruitInfo), repeat(connectedErrorDir), repeat(elementErrorDir)))
         closeJsonFile(connectedErrorDir)
         RecruitInfoURLs = checkError(connectedErrorDir)
@@ -270,11 +267,11 @@ def scrapRecruitInfo():
 if __name__ == '__main__':
     manager = Manager()
 
-    # print('---------채용직군---------------------------')
-    # jobGroups = getJobGroups()
-    #
-    # print('---------채용공고리스트----------------------')
-    # scrapRecruitList(jobGroups)
+    print('---------채용직군---------------------------')
+    jobGroups = getJobGroups()
+
+    print('---------채용공고리스트----------------------')
+    scrapRecruitList(jobGroups)
 
     print('---------채용공고---------------------------')
     scrapRecruitInfo()
