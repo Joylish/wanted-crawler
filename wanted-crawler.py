@@ -11,12 +11,14 @@ import time, csv
 import json
 from pymongo import MongoClient
 
+client = MongoClient('1.222.84.186', 27017)
+db = client.get_database('wanted')
 
 def insertDB(collection, chunk):
-    client = MongoClient('1.222.84.186', 27017)
-    db = client.get_database('wanted')
     db[collection].insert(chunk, check_keys=False)
 
+def readDB(collection):
+    return list(db[collection].find())
 
 def getJobGroups():
     res = requests.get(
@@ -167,7 +169,6 @@ def getInfosByElements(elements):
 
 
 def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErrorDir):
-    # group, url = recruitInfoUrl
     group = recruitInfoUrl['jobGroup']
     url = recruitInfoUrl['url']
     print(group, url)
@@ -201,7 +202,7 @@ def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErr
 
 def scrapRecruitList(groups):
     recruitInfosByGroup = manager.list()
-    with closing(Pool(processes=1)) as pool:
+    with closing(Pool(processes=7)) as pool:
         pool.starmap(getRecruitInfoList, zip(groups, repeat(recruitInfosByGroup)))
 
     insertDB("recruitInfoUrl", recruitInfosByGroup)
@@ -272,14 +273,17 @@ def scrapRecruitInfo(recruitInfoURLs):
 if __name__ == '__main__':
     manager = Manager()
 
-    print('---------채용직군---------------------------')
-    jobGroups = getJobGroups()
-    #
-    print('---------채용공고리스트----------------------')
-    recruitInfosByGroup = scrapRecruitList(jobGroups)
+    # print('---------채용직군---------------------------')
+    # jobGroups = getJobGroups()
+    # #
+    # print('---------채용공고리스트----------------------')
+    # recruitInfosByGroup = scrapRecruitList(jobGroups)
     # testrecruitInfosByGroup = scrapRecruitList([{'jobGroup': '서버 개발자', 'url': "https://www.wanted.co.kr/wdlist/518/872"}])
     # print(testrecruitInfosByGroup)
+
     print('---------채용공고---------------------------')
     # scrapRecruitInfo()
+
+    recruitInfosByGroup = readDB('recruitInfoUrl')
     scrapRecruitInfo(recruitInfosByGroup)
     # testscrapRecruitInfo=scrapRecruitInfo([{'jobGroup': '서버 개발자', 'url': 'https://www.wanted.co.kr/wd/42966'}])
