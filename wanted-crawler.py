@@ -12,11 +12,10 @@ import json
 from pymongo import MongoClient
 
 
-def insertDocument(chunk):
-    client = MongoClient('localhost', 27000)
-    db = client.wanted
-    recruitInfo = db['recruitInfo']
-    recruitInfo.insert_many(chunk)
+def insertDB(collection, chunk):
+    client = MongoClient('1.222.84.186', 27017)
+    db = client.get_database('wanted')
+    db[collection].insert(chunk, check_keys=False)
 
 
 def getJobGroups():
@@ -29,9 +28,10 @@ def getJobGroups():
     for elements in soup.find("div", class_="_2h5Qtv_8mK2LOH-yR3FTRs").find_all("li"):
         href = elements.find("a")["href"]
         span = elements.find("span")
-        jobGroup = {span.get_text(): "https://www.wanted.co.kr" + href}
+        jobGroup = {'jobGroup': span.get_text(), 'url': "https://www.wanted.co.kr" + href}
         jobGroups.append(jobGroup)
         print(jobGroup)
+    insertDB("jobGroupUrl", jobGroups)
     return jobGroups
 
 
@@ -75,9 +75,9 @@ def scrollPage(driver):
             break
         last_height = new_height
 
-
 def getRecruitInfoList(urlDict, recruitInfos):
-    driver = connectWebDriver(''.join(urlDict.values()))
+    print(urlDict['jobGroup'])
+    driver = connectWebDriver(urlDict['url'])
 
     scrollPage(driver)
 
@@ -85,10 +85,14 @@ def getRecruitInfoList(urlDict, recruitInfos):
 
     if allRecruitInfo:
         for recruitInfo in allRecruitInfo:
-            group = ''.join(urlDict.keys())
+            # group = ''.join(urlDict.keys())
+            print(urlDict['jobGroup'])
+            jobGroup = urlDict['jobGroup']
             recruitInfoUrl = recruitInfo.get_attribute('href')
-            recruitInfos[group].append(recruitInfoUrl)
-            print(group, recruitInfoUrl)
+            # recruitInfos[group].append(recruitInfoUrl)
+            recruitInfo = {'jobGroup': jobGroup, 'url': recruitInfoUrl}
+            recruitInfos.append(recruitInfo)
+            print(jobGroup, recruitInfoUrl)
 
     driver.quit()
 
@@ -106,12 +110,13 @@ def saveError(errorFileDir, element, recruitInfoUrl):
 
 
 def createrecruitInfo(contents):
-    headers = ['id', '직군', '지역', '국가', '태그', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지']
+    # headers = ['id', '직군', '지역', '국가', '태그', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지']
+    headers = ['직군', '지역', '국가', '태그', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지']
     recruitInfo = {header: value for header, value in zip(headers, contents)}
     with open('data/RecruitInfoLog.json', 'a', encoding='UTF-8') as file:
         json.dump(recruitInfo, file, indent=4, ensure_ascii=False)
         file.write('\n,')
-    return  recruitInfo
+    return recruitInfo
 
 
 def getAllElement(driver, elementErrorDir, recruitInfoUrl):
@@ -149,7 +154,7 @@ def getAllElement(driver, elementErrorDir, recruitInfoUrl):
 
 
 def getInfosByElements(elements):
-    pattern = "[∙\n•#\"!:)/■❤️▶✔]"
+    pattern = "[∙\n•#\"!:)/■❤️▶✔▪]"
     region, country = elements[0].text.split('\n.\n') if elements[0] else [None, None]
     tags = [re.sub(pattern=pattern, repl='', string=tagElement.text) for tagElement in elements[1]] \
         if elements[1] else []
@@ -162,13 +167,12 @@ def getInfosByElements(elements):
 
 
 def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErrorDir):
-    group, url = recruitInfoUrl
+    # group, url = recruitInfoUrl
+    group = recruitInfoUrl['jobGroup']
+    url = recruitInfoUrl['url']
     print(group, url)
 
     contents = []
-    id = url.replace('https://www.wanted.co.kr/wd/', '')
-    contents.append(id)
-
     try:
         driver = connectWebDriver(url)
     except Exception as error:
@@ -179,7 +183,6 @@ def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErr
 
     region, country, tags, company, details, workArea, deadline = getInfosByElements(recruitInfoElements)
 
-    contents.append(id)
     contents.append(group)
     contents.append(region)
     contents.append(country)
@@ -197,19 +200,12 @@ def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErr
 
 
 def scrapRecruitList(groups):
-    recruitInfosByGroup = manager.dict()
-
-    for group in groups:
-        recruitInfosByGroup[''.join(group.keys())] = manager.list()
-
-    with closing(Pool(processes=7)) as pool:
+    recruitInfosByGroup = manager.list()
+    with closing(Pool(processes=1)) as pool:
         pool.starmap(getRecruitInfoList, zip(groups, repeat(recruitInfosByGroup)))
 
-    with open(r'data/RecruitInfoList.csv', 'w', encoding='utf-8', newline='') as file:
-        RecruitInfoListfile = csv.writer(file)
-        for group, urls in recruitInfosByGroup.items():
-            for url in urls:
-                RecruitInfoListfile.writerow([group, url])
+    insertDB("recruitInfoUrl", recruitInfosByGroup)
+    return recruitInfosByGroup
 
     print('직군별 채용공고리스트 url 저장 완료!')
 
@@ -246,30 +242,29 @@ def getRecruitInfoURLs():
     return RecruitInfoList
 
 
-def scrapRecruitInfo():
-    allRecruitInfo = manager.list()
+def scrapRecruitInfo(recruitInfoURLs):
     recruitInfoLogsDir = 'data/RecruitInfoLog.json'
     elementErrorDir = f'data/errors/FindElementError.json'
     connectedErrorDir = f'data/errors/ConnectedError.json'
-
-    # RecruitInfoURLs = [['서버 개발자', 'https://www.wanted.co.kr/wd/42191'], ["서버 개발자","https://www.wanted.co.kr/wd/38516"]]
-    RecruitInfoURLs = getRecruitInfoURLs()
-
     openJsonFile(recruitInfoLogsDir)
     openJsonFile(elementErrorDir)
 
-    while len(RecruitInfoURLs) > 0:
+    allRecruitInfo = manager.list()
+
+    while len(recruitInfoURLs) > 0:
         openJsonFile(connectedErrorDir)
         with closing(Pool(processes=7)) as pool:
-            pool.starmap(getRecruitInfo, zip(RecruitInfoURLs, repeat(allRecruitInfo), repeat(connectedErrorDir), repeat(elementErrorDir)))
+            pool.starmap(getRecruitInfo, zip(recruitInfoURLs, repeat(allRecruitInfo), repeat(connectedErrorDir),
+                                             repeat(elementErrorDir)))
+
         closeJsonFile(connectedErrorDir)
-        RecruitInfoURLs = checkError(connectedErrorDir)
+        recruitInfoURLs = checkError(connectedErrorDir)
 
     closeJsonFile(elementErrorDir)
     closeJsonFile(recruitInfoLogsDir)
-
-    with open('data/RecruitInfo.json', 'w', encoding='UTF-8') as file:
-        json.dump(list(allRecruitInfo), file, indent=4, ensure_ascii=False)
+    insertDB("recruitInfo", allRecruitInfo)
+    # with open('data/RecruitInfo.json', 'w', encoding='UTF-8') as file:
+    #     json.dump(list(allRecruitInfo), file, indent=4, ensure_ascii=False)
 
     print('채용상세정보 수집 모두 완료!')
 
@@ -277,11 +272,14 @@ def scrapRecruitInfo():
 if __name__ == '__main__':
     manager = Manager()
 
-    # print('---------채용직군---------------------------')
-    # jobGroups = getJobGroups()
+    print('---------채용직군---------------------------')
+    jobGroups = getJobGroups()
     #
-    # print('---------채용공고리스트----------------------')
-    # scrapRecruitList(jobGroups)
-
+    print('---------채용공고리스트----------------------')
+    recruitInfosByGroup = scrapRecruitList(jobGroups)
+    # testrecruitInfosByGroup = scrapRecruitList([{'jobGroup': '서버 개발자', 'url': "https://www.wanted.co.kr/wdlist/518/872"}])
+    # print(testrecruitInfosByGroup)
     print('---------채용공고---------------------------')
-    scrapRecruitInfo()
+    # scrapRecruitInfo()
+    scrapRecruitInfo(recruitInfosByGroup)
+    # testscrapRecruitInfo=scrapRecruitInfo([{'jobGroup': '서버 개발자', 'url': 'https://www.wanted.co.kr/wd/42966'}])
