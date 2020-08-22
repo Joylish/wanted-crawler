@@ -10,6 +10,7 @@ import re
 import time, csv
 import json
 from pymongo import MongoClient
+from eunjeon import Mecab
 
 client = MongoClient('1.222.84.186', 27017)
 db = client.get_database('wanted')
@@ -94,6 +95,7 @@ def getRecruitInfoList(urlDict, recruitInfos):
             # recruitInfos[group].append(recruitInfoUrl)
             recruitInfo = {'jobGroup': jobGroup, 'url': recruitInfoUrl}
             recruitInfos.append(recruitInfo)
+            insertDB("recruitInfoUrl", recruitInfo)
             print(jobGroup, recruitInfoUrl)
 
     driver.quit()
@@ -109,16 +111,6 @@ def saveError(errorFileDir, element, recruitInfoUrl):
         errorObject = errorFormatter(element, recruitInfoUrl)
         json.dump(errorObject, file, indent=4, ensure_ascii=False)
         file.write('\n,')
-
-
-def createrecruitInfo(contents):
-    # headers = ['id', '직군', '지역', '국가', '태그', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지']
-    headers = ['직군', '지역', '국가', '태그', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지']
-    recruitInfo = {header: value for header, value in zip(headers, contents)}
-    with open('data/RecruitInfoLog.json', 'a', encoding='UTF-8') as file:
-        json.dump(recruitInfo, file, indent=4, ensure_ascii=False)
-        file.write('\n,')
-    return recruitInfo
 
 
 def getAllElement(driver, elementErrorDir, recruitInfoUrl):
@@ -156,7 +148,7 @@ def getAllElement(driver, elementErrorDir, recruitInfoUrl):
 
 
 def getInfosByElements(elements):
-    pattern = "[∙\n•#\"!:)/■❤️▶✔▪]"
+    pattern = "[∙\n•#\"!:)/■❤♥ ️▶✔▪^회사소개]"
     region, country = elements[0].text.split('\n.\n') if elements[0] else [None, None]
     tags = [re.sub(pattern=pattern, repl='', string=tagElement.text) for tagElement in elements[1]] \
         if elements[1] else []
@@ -168,7 +160,18 @@ def getInfosByElements(elements):
     return region, country, tags, company, details, workArea, deadline
 
 
+def createrecruitInfo(contents):
+    # headers = ['id', '직군', '지역', '국가', '태그', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지']
+    headers = ['직군', '지역', '국가', '태그', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지', '회사소개_명사', '주요업무_명사', '자격요건_명사', '우대사항_명사', '혜택 및 복지_명사']
+    recruitInfo = {header: value for header, value in zip(headers, contents)}
+    # with open('data/RecruitInfoLog.json', 'a', encoding='UTF-8') as file:
+    #     json.dump(recruitInfo, file, indent=4, ensure_ascii=False)
+    #     file.write('\n,')
+    return recruitInfo
+
+
 def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErrorDir):
+    mecab = Mecab()
     group = recruitInfoUrl['jobGroup']
     url = recruitInfoUrl['url']
     print(group, url)
@@ -192,9 +195,12 @@ def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErr
     contents.extend(details)
     contents.append(deadline)
     contents.append(workArea)
-
+    for detail in details:
+        contents.append(mecab.nouns(detail))
     recruitInfo = createrecruitInfo(contents)
     allRecruitInfo.append(recruitInfo)
+
+    insertDB("recruitInfo", recruitInfo)
 
     print('완료! ', recruitInfo)
     driver.quit()
@@ -205,10 +211,10 @@ def scrapRecruitList(groups):
     with closing(Pool(processes=7)) as pool:
         pool.starmap(getRecruitInfoList, zip(groups, repeat(recruitInfosByGroup)))
 
-    insertDB("recruitInfoUrl", recruitInfosByGroup)
-    return recruitInfosByGroup
-
+    # insertDB("recruitInfoUrl", recruitInfosByGroup)
     print('직군별 채용공고리스트 url 저장 완료!')
+
+    return recruitInfosByGroup
 
 
 def openJsonFile(fileDir):
@@ -263,7 +269,7 @@ def scrapRecruitInfo(recruitInfoURLs):
 
     closeJsonFile(elementErrorDir)
     closeJsonFile(recruitInfoLogsDir)
-    insertDB("recruitInfo", allRecruitInfo)
+    # insertDB("recruitInfo", allRecruitInfo)
     # with open('data/RecruitInfo.json', 'w', encoding='UTF-8') as file:
     #     json.dump(list(allRecruitInfo), file, indent=4, ensure_ascii=False)
 
@@ -273,11 +279,11 @@ def scrapRecruitInfo(recruitInfoURLs):
 if __name__ == '__main__':
     manager = Manager()
 
-    # print('---------채용직군---------------------------')
-    # jobGroups = getJobGroups()
+    print('---------채용직군---------------------------')
+    jobGroups = getJobGroups()
     # #
-    # print('---------채용공고리스트----------------------')
-    # recruitInfosByGroup = scrapRecruitList(jobGroups)
+    print('---------채용공고리스트----------------------')
+    recruitInfosByGroup = scrapRecruitList(jobGroups)
     # testrecruitInfosByGroup = scrapRecruitList([{'jobGroup': '서버 개발자', 'url': "https://www.wanted.co.kr/wdlist/518/872"}])
     # print(testrecruitInfosByGroup)
 
@@ -285,5 +291,6 @@ if __name__ == '__main__':
     # scrapRecruitInfo()
 
     recruitInfosByGroup = readDB('recruitInfoUrl')
+    # recruitInfosByGroup = [{'jobGroup': '서버 개발자', 'url': 'https://www.wanted.co.kr/wd/42966'}]
     scrapRecruitInfo(recruitInfosByGroup)
     # testscrapRecruitInfo=scrapRecruitInfo([{'jobGroup': '서버 개발자', 'url': 'https://www.wanted.co.kr/wd/42966'}])
