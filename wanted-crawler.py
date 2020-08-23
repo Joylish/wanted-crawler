@@ -10,16 +10,25 @@ import re
 import time, csv
 import json
 from pymongo import MongoClient
-from eunjeon import Mecab
 
-client = MongoClient('1.222.84.186', 27017)
-db = client.get_database('wanted')
+import nltk
+from konlpy.tag import Okt
+okt = Okt()
+
+# nltk.download()
+# nltk.download('punkt')
+
+mongoUrl = "mongodb://signit:///password///@ck4ckei.asuscomm.com:27017/signit"
+client = MongoClient(mongoUrl)
+db = client.get_database('signit')
 
 def insertDB(collection, chunk):
     db[collection].insert(chunk, check_keys=False)
 
+
 def readDB(collection):
     return list(db[collection].find())
+
 
 def getJobGroups():
     res = requests.get(
@@ -78,6 +87,7 @@ def scrollPage(driver):
             break
         last_height = new_height
 
+
 def getRecruitInfoList(urlDict, recruitInfos):
     print(urlDict['jobGroup'])
     driver = connectWebDriver(urlDict['url'])
@@ -88,11 +98,9 @@ def getRecruitInfoList(urlDict, recruitInfos):
 
     if allRecruitInfo:
         for recruitInfo in allRecruitInfo:
-            # group = ''.join(urlDict.keys())
             print(urlDict['jobGroup'])
             jobGroup = urlDict['jobGroup']
             recruitInfoUrl = recruitInfo.get_attribute('href')
-            # recruitInfos[group].append(recruitInfoUrl)
             recruitInfo = {'jobGroup': jobGroup, 'url': recruitInfoUrl}
             recruitInfos.append(recruitInfo)
             insertDB("recruitInfoUrl", recruitInfo)
@@ -100,78 +108,80 @@ def getRecruitInfoList(urlDict, recruitInfos):
 
     driver.quit()
 
-def errorFormatter(error, recruitInfoUrl):
-    return {
-                'where': recruitInfoUrl,
-                'detail': error
-            }
 
-def saveError(errorFileDir, element, recruitInfoUrl):
-    with open(errorFileDir, 'a', encoding='utf-8', newline='') as file:
-        errorObject = errorFormatter(element, recruitInfoUrl)
-        json.dump(errorObject, file, indent=4, ensure_ascii=False)
-        file.write('\n,')
+def saveError (type, recruitInfoUrl, error):
+    errorlog = {'type': type, 'where': recruitInfoUrl,  'detail': error}
+    insertDB("recruitInfoError", errorlog)
 
-
-def getAllElement(driver, elementErrorDir, recruitInfoUrl):
+def getAllElement(driver,recruitInfoUrl):
     whereElement, tagElements, companyElement, detailElements, whereElement, deadlineElement, workAreaElement \
         = '', '', '', '', '', '', ''
     try:
         companyElement = driver.find_element_by_xpath('//section[@class="Bfoa2bzuGpxK9ieE1GxhW"]/div/h6/a')
     except Exception:
-        saveError(elementErrorDir, 'companyElement', recruitInfoUrl)
+        saveError("elementError", recruitInfoUrl, 'warning: companyElement is null')
     try:
         detailElements = driver.find_elements_by_xpath('//section[@class="_1LnfhLPc7hiSZaaXxRv11H"]/p')
     except Exception:
-        saveError(elementErrorDir, 'detailElements', recruitInfoUrl)
+        saveError("elementError", recruitInfoUrl, 'warning: detailElements is null')
     try:
         tagElements = driver.find_elements_by_xpath('//div[@class="ObubI7m2AFE5fxlR8Va9t"]/ul/li/a')
     except Exception:
-        saveError(elementErrorDir, 'tagElements', recruitInfoUrl)
+        saveError("elementError", recruitInfoUrl, 'warning: tagElements is null')
     try:
         whereElement = driver.find_element_by_xpath(
             '/html/body/div[1]/div/div[3]/div[1]/div[1]/div/section[2]/div[1]/span')
     except Exception:
-        saveError(elementErrorDir, 'whereElement', recruitInfoUrl)
+        saveError("elementError", recruitInfoUrl, 'warning: whereElement is null')
     try:
         workAreaElement = driver.find_element_by_xpath(
-            '/html/body/div[1]/div/div[3]/div[1]/div[1]/div[1]/div[2]/section[2]/div[2]/span[2]')
+            '/html/body/div[1]/div/div[3]/div[1]/div[1]/div/div[2]/section[2]/div[2]/span[2]')
     except Exception:
-        saveError(elementErrorDir, 'workAreaElement', recruitInfoUrl)
+        saveError("elementError", recruitInfoUrl, 'warning: workAreaElement is null')
     try:
         deadlineElement = driver.find_element_by_xpath(
             '/html/body/div[1]/div/div[3]/div[1]/div[1]/div[1]/div[2]/section[2]/div[1]/span[2]')
     except Exception:
-        saveError(elementErrorDir, 'deadlineElement', recruitInfoUrl)
+        saveError("elementError", recruitInfoUrl, 'warning: deadlineElement is null')
 
-    return [whereElement, tagElements, companyElement, detailElements, whereElement, deadlineElement, workAreaElement]
+    return [whereElement, tagElements, companyElement, detailElements, workAreaElement, deadlineElement]
 
 
 def getInfosByElements(elements):
-    pattern = "[∙\n•#\"!:)/■❤♥ ️▶✔▪^회사소개]"
+    # pattern = "[-=+,#/\?:$.@*\"※~&ㆍ!』\\|\(\)\[\]\<\>`\'…》{}‘’“”■❤♥(•️▶✔▪~및 \n^0-9]"
+    pattern = '[^0-9a-zA-Zㄱ-힗%:.\n]'
     region, country = elements[0].text.split('\n.\n') if elements[0] else [None, None]
-    tags = [re.sub(pattern=pattern, repl='', string=tagElement.text) for tagElement in elements[1]] \
-        if elements[1] else []
+    tags = [re.sub(pattern=pattern, repl='', string=tagElement.text) for tagElement in elements[1]] if elements[1] else []
     company = elements[2].text if elements[2] else None
-    details = [re.sub(pattern=pattern, repl='', string=detailElement.text).strip() \
-               for detailElement in elements[3]] if elements[3] else []
     workArea = elements[4].text if elements[4] else None
     deadline = elements[5].text if elements[5] else None
-    return region, country, tags, company, details, workArea, deadline
+
+    details, detailsNouns = [], []
+    if not elements[3]: details = []
+    for detailElement in elements[3]:
+        detail = re.sub(pattern=pattern, repl='', string=detailElement.text).strip()
+        details.append(detail)
+
+        temp = []
+        english = nltk.word_tokenize(re.sub(f'[^a-zA-Z]', ' ', detailElement.text).strip())
+        others = re.findall('[\d{10}]+[년|주|명|여명|시간|만원|원|인]{1,5}', detailElement.text)
+
+        temp.extend(english)
+        temp.extend(others)
+        temp.extend(okt.nouns(detail))
+        detailsNouns.append(temp)
+
+    return region, country, tags, company, details, deadline, workArea, detailsNouns
 
 
 def createrecruitInfo(contents):
-    # headers = ['id', '직군', '지역', '국가', '태그', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지']
-    headers = ['직군', '지역', '국가', '태그', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지', '회사소개_명사', '주요업무_명사', '자격요건_명사', '우대사항_명사', '혜택 및 복지_명사']
+    headers = ['직군', '지역', '국가', '태그', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지', '회사소개_명사',
+               '주요업무_명사', '자격요건_명사', '우대사항_명사', '혜택 및 복지_명사']
     recruitInfo = {header: value for header, value in zip(headers, contents)}
-    # with open('data/RecruitInfoLog.json', 'a', encoding='UTF-8') as file:
-    #     json.dump(recruitInfo, file, indent=4, ensure_ascii=False)
-    #     file.write('\n,')
     return recruitInfo
 
 
-def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErrorDir):
-    mecab = Mecab()
+def getRecruitInfo(recruitInfoUrl, allRecruitInfo):
     group = recruitInfoUrl['jobGroup']
     url = recruitInfoUrl['url']
     print(group, url)
@@ -180,12 +190,12 @@ def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErr
     try:
         driver = connectWebDriver(url)
     except Exception as error:
-        saveError(connectedErrorDir, error, recruitInfoUrl)
+        saveError("connectionError", recruitInfoUrl, error.args)
         return
 
-    recruitInfoElements = getAllElement(driver, elementErrorDir, recruitInfoUrl)
+    recruitInfoElements = getAllElement(driver, recruitInfoUrl)
 
-    region, country, tags, company, details, workArea, deadline = getInfosByElements(recruitInfoElements)
+    region, country, tags, company, details, deadline, workArea, detailsNouns = getInfosByElements(recruitInfoElements)
 
     contents.append(group)
     contents.append(region)
@@ -195,8 +205,8 @@ def getRecruitInfo(recruitInfoUrl, allRecruitInfo, connectedErrorDir, elementErr
     contents.extend(details)
     contents.append(deadline)
     contents.append(workArea)
-    for detail in details:
-        contents.append(mecab.nouns(detail))
+    contents.extend(detailsNouns)
+
     recruitInfo = createrecruitInfo(contents)
     allRecruitInfo.append(recruitInfo)
 
@@ -211,31 +221,18 @@ def scrapRecruitList(groups):
     with closing(Pool(processes=7)) as pool:
         pool.starmap(getRecruitInfoList, zip(groups, repeat(recruitInfosByGroup)))
 
-    # insertDB("recruitInfoUrl", recruitInfosByGroup)
     print('직군별 채용공고리스트 url 저장 완료!')
 
     return recruitInfosByGroup
 
-
-def openJsonFile(fileDir):
-    with open(fileDir, 'w', encoding='UTF-8') as file:
-        file.writelines('[\n')
-
-
-def closeJsonFile(fileDir):
-    errorInfoFile = open(fileDir, 'r', encoding='UTF-8')
-    errorInfoFilelines = errorInfoFile.readline()
-    errorInfoFile.close()
-    with open(fileDir, 'w', encoding='UTF-8') as file:
-        file.writelines([item for item in errorInfoFilelines[:-1]])
-        file.write(']')
 
 
 def checkError(fileDir):
     errorInfoFile = open(fileDir, 'r', encoding='UTF-8')
     errorInfoFilelines = json.load(errorInfoFile)
     errorInfoFile.close()
-    RecruitInfoList = [errorInfoFileline['where'] for errorInfoFileline in errorInfoFilelines] if len(errorInfoFilelines) > 0 else []
+    RecruitInfoList = [errorInfoFileline['where'] for errorInfoFileline in errorInfoFilelines] if len(
+        errorInfoFilelines) > 0 else []
     return RecruitInfoList
 
 
@@ -250,47 +247,23 @@ def getRecruitInfoURLs():
 
 
 def scrapRecruitInfo(recruitInfoURLs):
-    recruitInfoLogsDir = 'data/RecruitInfoLog.json'
-    elementErrorDir = f'data/errors/FindElementError.json'
-    connectedErrorDir = f'data/errors/ConnectedError.json'
-    openJsonFile(recruitInfoLogsDir)
-    openJsonFile(elementErrorDir)
-
     allRecruitInfo = manager.list()
-
-    while len(recruitInfoURLs) > 0:
-        openJsonFile(connectedErrorDir)
-        with closing(Pool(processes=7)) as pool:
-            pool.starmap(getRecruitInfo, zip(recruitInfoURLs, repeat(allRecruitInfo), repeat(connectedErrorDir),
-                                             repeat(elementErrorDir)))
-
-        closeJsonFile(connectedErrorDir)
-        recruitInfoURLs = checkError(connectedErrorDir)
-
-    closeJsonFile(elementErrorDir)
-    closeJsonFile(recruitInfoLogsDir)
-    # insertDB("recruitInfo", allRecruitInfo)
-    # with open('data/RecruitInfo.json', 'w', encoding='UTF-8') as file:
-    #     json.dump(list(allRecruitInfo), file, indent=4, ensure_ascii=False)
-
-    print('채용상세정보 수집 모두 완료!')
+    with closing(Pool(processes=5)) as pool:
+        pool.starmap(getRecruitInfo, zip(recruitInfoURLs, repeat(allRecruitInfo)))
+        print('채용상세정보 수집 모두 완료!')
 
 
 if __name__ == '__main__':
     manager = Manager()
+    # print('---------채용직군---------------------------')
+    # jobGroups = getJobGroups()
 
-    print('---------채용직군---------------------------')
-    jobGroups = getJobGroups()
-    # #
-    print('---------채용공고리스트----------------------')
-    recruitInfosByGroup = scrapRecruitList(jobGroups)
-    # testrecruitInfosByGroup = scrapRecruitList([{'jobGroup': '서버 개발자', 'url': "https://www.wanted.co.kr/wdlist/518/872"}])
-    # print(testrecruitInfosByGroup)
-
+    # print('---------채용공고리스트----------------------')
+    # recruitInfosByGroup = scrapRecruitList(jobGroups)
+   
     print('---------채용공고---------------------------')
     # scrapRecruitInfo()
 
     recruitInfosByGroup = readDB('recruitInfoUrl')
-    # recruitInfosByGroup = [{'jobGroup': '서버 개발자', 'url': 'https://www.wanted.co.kr/wd/42966'}]
     scrapRecruitInfo(recruitInfosByGroup)
-    # testscrapRecruitInfo=scrapRecruitInfo([{'jobGroup': '서버 개발자', 'url': 'https://www.wanted.co.kr/wd/42966'}])
+   

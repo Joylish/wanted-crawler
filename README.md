@@ -16,7 +16,8 @@
 * json
 * time, csv
 * chromedriver
-* eunjeon
+* konlpy-okt
+* nltk
 
 
 #### DB 환경 
@@ -109,3 +110,4 @@
 
 2. 채용상세정보에서 기본적으로 직군, 회사명, 회사소개, 주요업무, 자격요건, 우대사항, 혜택 및 복지, 모집일, 근무지를 알 수 있다. 하지만 어떤 채용상세정보에서 기본 항목에 대응되는 값이 없었다. try/expect로 에러를 ErrorHistory.json에 기록하고 해당 항목에는 None 값을 할당했다.
 
+3. mecab과 okt를 비교하여 konlpy의 open korean text로 결정하여 명사 추출을 진행했다. okt 실행시 기존 jdk가 32bit라서 interface mismatch 오류가 났다.64bit jdk를 재설치해서 해결했다. 
