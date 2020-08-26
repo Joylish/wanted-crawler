@@ -9,6 +9,8 @@ en
 world
 kr
 in
+No
+no
 to
 the
 or

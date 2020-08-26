@@ -7,6 +7,7 @@ from multiprocessing import Pool, Manager
 from itertools import repeat
 
 import re
+from itertools import chain
 import time, csv
 import json
 from pymongo import MongoClient
@@ -18,46 +19,13 @@ from ckonlpy.utils import load_wordset, load_ngram
 
 # nltk.download('punkt')
 # nltk.download('stopwords')
-
 twitter = Twitter()
-stopwordsKR = load_wordset('data/korean_stopwords.txt',  encoding = 'ANSI')
-customStopwordsEN = load_wordset('data/english_stopwords.txt',  encoding = 'ANSI')
+stopwordsKR = load_wordset('cleansing_data/korean_stopwords.txt', encoding='ANSI')
+customStopwordsEN = load_wordset('cleansing_data/english_stopwords.txt', encoding='ANSI')
 stopwordsEN = customStopwordsEN.union(set(stopwords.words('english')))
-ngrams = load_ngram('data/korean_ngram.txt')
-
-userdicts = load_wordset('data/korean_user_dict.txt')
-# print(list(userdicts))
+ngrams = load_ngram('cleansing_data/korean_ngram.txt')
+userdicts = load_wordset('cleansing_data/korean_user_dict.txt')
 twitter.add_dictionary(list(userdicts), 'Noun', force=True)
-
-# postprocessor = Postprocessor(twitter, passtags='Noun', stopwords = stopwords)
-# print(postprocessor.pos('피쳐엔지니어링을 통해 더 자세히 분석'))
-
-# from itertools import chain
-# with open('data/english_stopwords.csv', 'r', encoding='utf-8', newline='') as file:
-#     fw = csv.reader(file)
-#     customStopwords = list(chain.from_iterable(fw))
-#     print(customStopwords)
-#
-# with open('data/korean_stopwords.csv', 'r', newline='') as file:
-#     fw = csv.reader(file)
-#     customStopwords = list(chain.from_iterable(fw))
-#     print(customStopwords)
-
-# englishStopWords = set(stopwords.words('english'))
-
-
-# mongoUrl = "mongodb://signit:///password///@ck4ckei.asuscomm.com:27017/signit"
-# client = MongoClient(mongoUrl)
-# db = client.get_database('signit')
-
-#
-# def insertDB(collection, chunk):
-#     db[collection].insert(chunk, check_keys=False)
-#
-#
-# def readDB(collection):
-#     return list(db[collection].find())
-
 
 def getJobGroups():
     res = requests.get(
@@ -120,27 +88,23 @@ def scrollPage(driver):
 def getRecruitInfoList(urlDict, recruitInfos):
     print(urlDict['jobGroup'])
     driver = connectWebDriver(urlDict['url'])
-
     scrollPage(driver)
-
     allRecruitInfo = driver.find_elements_by_xpath('//div[@class="_3D4OeuZHyGXN7wwibRM5BJ"]/a')
-
     if allRecruitInfo:
         for recruitInfo in allRecruitInfo:
-            print(urlDict['jobGroup'])
             jobGroup = urlDict['jobGroup']
             recruitInfoUrl = recruitInfo.get_attribute('href')
             recruitInfo = {'jobGroup': jobGroup, 'url': recruitInfoUrl}
             recruitInfos.append(recruitInfo)
-            # insertDB("recruitInfoUrl", recruitInfo)
-            print(jobGroup, recruitInfoUrl)
-
+            with open('data/recruitInfoList.csv', 'a', encoding='utf-8-sig', newline='') as file:
+                writer = csv.writer(file)
+                writer.writerow([jobGroup, recruitInfoUrl])
     driver.quit()
 
 
 def saveError(type, recruitInfoUrl, error):
     errorlog = {'type': type, 'where': recruitInfoUrl, 'detail': error}
-    with open('data/RecruitInfoError.json', 'a', encoding='UTF-8') as file:
+    with open('data/logs/RecruitInfoError.json', 'a', encoding='UTF-8') as file:
         json.dump(errorlog, file, indent=4, ensure_ascii=False)
         file.write('\n,')
     # insertDB("recruitInfoError", errorlog)
@@ -182,8 +146,8 @@ def getAllElement(driver, recruitInfoUrl):
 
 def getInfosByElements(elements):
     # pattern = "[-=+,#/\?:$.@*\"※~&ㆍ!』\\|\(\)\[\]\<\>`\'…》{}‘’“”■❤♥(•️▶✔▪~및 \n^0-9]"
-    pattern = '[^0-9a-zA-Zㄱ-힗%:.\n]'
-    region, country = elements[0].text.split('\n.\n') if elements[0] else [None, None]
+    pattern = '[^0-9a-zA-Zㄱ-힗%:.~\n]'
+    region, _ = elements[0].text.split('\n.\n') if elements[0] else [None, None]
     tags = [re.sub(pattern=pattern, repl='', string=tagElement.text) for tagElement in elements[1]] if elements[
         1] else []
     company = elements[2].text if elements[2] else None
@@ -196,37 +160,31 @@ def getInfosByElements(elements):
         detail = re.sub(pattern=pattern, repl='', string=detailElement.text).strip()
         details.append(detail)
 
-        temp = []
-
         englishTokens = nltk.word_tokenize(re.sub(f'[^a-zA-Z]', ' ', detailElement.text).strip())
         english = [token for token in englishTokens if token not in stopwordsEN]
         postprocessor = Postprocessor(twitter, passtags='Noun', stopwords=stopwordsKR, ngrams=ngrams)
         koreanWords = postprocessor.pos(detailElement.text)
+        korean = [word[0] for word in koreanWords if len(word[0]) > 1 and word[0] != '앱']
         others = re.findall('[\d{10}]+[년|주|명|여명|시간|만원|원|인|개월]{1,5}', detailElement.text)
 
-        korean = [word[0] for word in koreanWords]
-
+        temp = []
         temp.extend(korean)
         temp.extend(english)
         temp.extend(others)
         detailsNouns.append(temp)
 
-    return region, country, tags, company, details, deadline, workArea, detailsNouns
+    return region, tags, company, details, deadline, workArea, detailsNouns
 
 
-def createrecruitInfo(contents):
-    headers = ['직군', '지역', '국가', '태그', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지', '회사소개_명사',
-               '주요업무_명사', '자격요건_명사', '우대사항_명사', '혜택 및 복지_명사']
-    recruitInfo = {header: value for header, value in zip(headers, contents)}
-    return recruitInfo
-
-
-def getRecruitInfo(recruitInfoUrl, allRecruitInfo):
-    group = recruitInfoUrl['jobGroup']
-    url = recruitInfoUrl['url']
+def getRecruitInfo(recruitInfoUrl):
+    # group = recruitInfoUrl['jobGroup']
+    # url = recruitInfoUrl['url']
+    pattern = '[^0-9\n]'
+    group = recruitInfoUrl[0]
+    url = recruitInfoUrl[1].strip()
+    recruitInfoId =  re.sub(pattern=pattern, repl='', string=url)
     print(group, url)
 
-    contents = []
     try:
         driver = connectWebDriver(url)
     except Exception as error:
@@ -234,38 +192,76 @@ def getRecruitInfo(recruitInfoUrl, allRecruitInfo):
         return
 
     recruitInfoElements = getAllElement(driver, recruitInfoUrl)
+    region, tags, company, details, deadline, workArea, detailsNouns = getInfosByElements(recruitInfoElements)
 
-    region, country, tags, company, details, deadline, workArea, detailsNouns = getInfosByElements(recruitInfoElements)
-
+    contents = []
+    contents.append(recruitInfoId)
     contents.append(group)
     contents.append(region)
-    contents.append(country)
-    contents.append(tags)
     contents.append(company)
     contents.extend(details)
     contents.append(deadline)
     contents.append(workArea)
-    contents.extend(detailsNouns)
 
-    recruitInfo = createrecruitInfo(contents)
-    allRecruitInfo.append(recruitInfo)
+    # introduction = []
+    # introduction.append(recruitInfoId)
+    # introduction.extend(detailsNouns[0])
+    # main_task = []
+    # main_task.append(recruitInfoId)
+    # main_task.extend(detailsNouns[1])
+    # requirement = []
+    # requirement.append(recruitInfoId)
+    # requirement.extend(detailsNouns[2])
+    # preference = []
+    # preference.append(recruitInfoId)
+    # preference.extend(detailsNouns[3])
+    # benefit = []
+    # benefit.append(recruitInfoId)
+    # benefit.extend(detailsNouns[4])
 
-    # insertDB("recruitInfo", recruitInfo)
-    with open('data/RecruitInfo.json', 'a', encoding='UTF-8') as file:
-        json.dump(recruitInfo, file, indent=4, ensure_ascii=False)
-        file.write('\n,')
-
-    print('완료! ', recruitInfo)
+    with open('data/recruitInfo/origin.csv', 'a', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(contents)
+    with open('data/recruitInfo/tag.csv', 'a', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow([recruitInfoId]+tags)
+    # 회사소개
+    with open('data/recruitInfo/introduction.csv', 'a', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow([recruitInfoId]+detailsNouns[0])
+    # 주요업무
+    with open('data/recruitInfo/main_task.csv', 'a', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow([recruitInfoId]+detailsNouns[1])
+    # 자격요건
+    with open('data/recruitInfo/requirement.csv', 'a', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow([recruitInfoId]+detailsNouns[2])
+    # 우대사항
+    with open('data/recruitInfo/preference.csv', 'a', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow([recruitInfoId]+detailsNouns[3])
+    # 복지 및 혜택
+    with open('data/recruitInfo/benefit.csv', 'a', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow([recruitInfoId]+detailsNouns[4])
+    print('완료!')
     driver.quit()
 
 
 def scrapRecruitList(groups):
+    origin_headers = ['직군', 'url']
+    with open('data/recruitInfoList.csv', 'w', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(origin_headers)
+
     recruitInfosByGroup = manager.list()
-    with closing(Pool(processes=7)) as pool:
+    with closing(Pool(processes=5)) as pool:
         pool.starmap(getRecruitInfoList, zip(groups, repeat(recruitInfosByGroup)))
 
     print('직군별 채용공고리스트 url 저장 완료!')
     return recruitInfosByGroup
+
 
 def openJsonFile(fileDir):
     with open(fileDir, 'w', encoding='UTF-8') as file:
@@ -273,58 +269,59 @@ def openJsonFile(fileDir):
 
 
 def closeJsonFile(fileDir):
-    # errorInfoFile = open(fileDir, 'r', encoding='UTF-8')
-    # errorInfoFilelines = errorInfoFile.readline()
-    # errorInfoFile.close()o
     with open(fileDir, 'a', encoding='UTF-8') as file:
-        # file.writelines([item for item in errorInfoFilelines[:-1]])
+        file.writelines([item for item in file[:-1]])
         file.write(']')
-
-def checkError(fileDir):
-    errorInfoFile = open(fileDir, 'r', encoding='UTF-8')
-    errorInfoFilelines = json.load(errorInfoFile)
-    errorInfoFile.close()
-    RecruitInfoList = [errorInfoFileline['where'] for errorInfoFileline in errorInfoFilelines] if len(
-        errorInfoFilelines) > 0 else []
-    return RecruitInfoList
-
-
-def getRecruitInfoURLs():
-    RecruitInfoList = []
-    with open('data/RecruitInfoList.csv', 'r', encoding='UTF-8') as file:
-        RecruitInfoListReader = csv.reader(file)
-        for RecruitInfo in RecruitInfoListReader:
-            if len(RecruitInfo) == 2:
-                RecruitInfoList.append(RecruitInfo)
-    return RecruitInfoList
 
 
 def scrapRecruitInfo(recruitInfoURLs):
-    allRecruitInfo = manager.list()
-    openJsonFile('data/RecruitInfo.json')
-    openJsonFile('data/RecruitInfoError.json')
-    with closing(Pool(processes=5)) as pool:
-        pool.starmap(getRecruitInfo, zip(recruitInfoURLs, repeat(allRecruitInfo)))
+    origin_headers = ['id', '직군', '지역', '회사명', '회사소개', '주요업무', '자격요건', '우대사항', '혜택 및 복지', '마감일', '근무지']
+    with open('data/recruitInfo/origin.csv', 'w', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(origin_headers)
+    with open('data/recruitInfo/tag.csv', 'w', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['id','태그'])
+    with open('data/recruitInfo/introduction.csv', 'w', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['id','회사소개'])
+    with open('data/recruitInfo/main_task.csv', 'w', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['id','주요업무'])
+    with open('data/recruitInfo/requirement.csv', 'w', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['id','자격요건'])
+    with open('data/recruitInfo/preference.csv', 'w', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['id','우대사항'])
+    with open('data/recruitInfo/benefit.csv', 'w', encoding='utf-8-sig', newline='') as file:
+        writer = csv.writer(file)
+        writer.writerow(['id','혜택 및 복지'])
+
+    # allRecruitInfo = manager.list()
+    openJsonFile('data/logs/RecruitInfoError.json')
+    with closing(Pool(processes=3)) as pool:
+        pool.starmap(getRecruitInfo, zip(recruitInfoURLs))
         print('채용상세정보 수집 모두 완료!')
-    closeJsonFile('data/RecruitInfoError.json')
-    closeJsonFile('data/RecruitInfo.json')
 
-    with open('data/FinalRecruitInfo.json', 'w', encoding='UTF-8') as file:
-        # file.writelines([item for item in errorInfoFilelines[:-1]])
-        json.dump(allRecruitInfo, file)
-
+    # closeJsonFile('data/logs/RecruitInfoError.json')
 
 
 if __name__ == '__main__':
+
     manager = Manager()
-    print('---------채용직군---------------------------')
-    jobGroups = getJobGroups()
+    # print('---------채용직군---------------------------')
+    # jobGroups = getJobGroups()
     #
-    print('---------채용공고리스트----------------------')
-    recruitInfosByGroup = scrapRecruitList(jobGroups)
+    # print('---------채용공고리스트----------------------')
+    # recruitInfosByGroup = scrapRecruitList(jobGroups)
 
     print('---------채용공고---------------------------')
     # scrapRecruitInfo()
 
     # recruitInfosByGroup = readDB('recruitInfoUrl')
+    with open('data/recruitInfoList.csv', 'r', encoding='utf-8-sig', newline='') as file:
+        recruitInfosByGroup = [line.split(',') for line in file]
+    # print(recruitInfosByGroup[1:])
+    # recruitInfosByGroup = [['프론트엔드 개발자','https://www.wanted.co.kr/wd/42882']]
     scrapRecruitInfo(recruitInfosByGroup)
