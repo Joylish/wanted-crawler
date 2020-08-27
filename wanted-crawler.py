@@ -1,15 +1,13 @@
 import requests
 from bs4 import BeautifulSoup
-from selenium import webdriver
+from webConnection import connectWebDriver, scrollPage
 
 from contextlib import closing
 from multiprocessing import Pool, Manager
 from itertools import repeat
 
-import re
-from itertools import chain
-import time, csv
-import json
+import re, csv
+from fileIO import openJsonFile, saveError
 from pymongo import MongoClient
 
 import nltk
@@ -44,46 +42,6 @@ def getJobGroups():
     return jobGroups
 
 
-def connectWebDriver(web):
-    options = webdriver.ChromeOptions()
-    options.add_argument("disable-gpu")
-    options.add_argument("headless")
-    options.add_argument("lang=ko_KR")
-
-    # 브라우저 화면 크기에 따라 미디어 쿼리 등에 따라 element 구조가
-    # 달라질 수 있으므로 고정시키고 시작하기
-    options.add_argument('--start-maximized')
-
-    options.add_argument(
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.125 Safari/537.36")
-
-    driver = webdriver.Chrome('chromedriver/chromedriver', options=options)
-    # 헤더 탐지 피하기
-    driver.execute_script("Object.defineProperty(navigator, 'plugins', {get: function() {return[1, 2, 3, 4, 5];},});")
-    driver.execute_script("Object.defineProperty(navigator, 'languages', {get: function() {return ['ko-KR', 'ko']}})")
-    driver.execute_script(
-        "const getParameter = WebGLRenderingContext.getParameter;WebGLRenderingContext.prototype.getParameter = function(parameter) {if (parameter === 37445) {return 'NVIDIA Corporation'} if (parameter === 37446) {return 'NVIDIA GeForce GTX 980 Ti OpenGL Engine';}return getParameter(parameter);};")
-
-    driver.implicitly_wait(2)
-    driver.get(web)
-    driver.implicitly_wait(2)
-
-    return driver
-
-
-def scrollPage(driver):
-    SCROLL_PAUSE_TIME = 0.5
-    last_height = driver.execute_script("return document.body.scrollHeight")
-    while True:
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(SCROLL_PAUSE_TIME)
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight-50);")
-        time.sleep(SCROLL_PAUSE_TIME)
-        new_height = driver.execute_script("return document.body.scrollHeight")
-        if new_height == last_height:
-            break
-        last_height = new_height
-
 
 def getRecruitInfoList(urlDict, recruitInfos):
     print(urlDict['jobGroup'])
@@ -102,12 +60,18 @@ def getRecruitInfoList(urlDict, recruitInfos):
     driver.quit()
 
 
-def saveError(type, recruitInfoUrl, error):
-    errorlog = {'type': type, 'where': recruitInfoUrl, 'detail': error}
-    with open('data/logs/RecruitInfoError.json', 'a', encoding='UTF-8') as file:
-        json.dump(errorlog, file, indent=4, ensure_ascii=False)
-        file.write('\n,')
-    # insertDB("recruitInfoError", errorlog)
+def scrapRecruitList(groups):
+    # origin_headers = ['직군', 'url']
+    # with open('data/recruitInfoList.csv', 'w', encoding='utf-8-sig', newline='') as file:
+    #     writer = csv.writer(file)
+    #     writer.writerow(origin_headers)
+
+    recruitInfosByGroup = manager.list()
+    with closing(Pool(processes=5)) as pool:
+        pool.starmap(getRecruitInfoList, zip(groups, repeat(recruitInfosByGroup)))
+
+    print('직군별 채용공고리스트 url 저장 완료!')
+    return recruitInfosByGroup
 
 
 def getAllElement(driver, recruitInfoUrl):
@@ -145,7 +109,6 @@ def getAllElement(driver, recruitInfoUrl):
 
 
 def getInfosByElements(elements):
-    # pattern = "[-=+,#/\?:$.@*\"※~&ㆍ!』\\|\(\)\[\]\<\>`\'…》{}‘’“”■❤♥(•️▶✔▪~및 \n^0-9]"
     pattern = '[^0-9a-zA-Zㄱ-힗%:.~\n]'
     region, _ = elements[0].text.split('\n.\n') if elements[0] else [None, None]
     tags = [re.sub(pattern=pattern, repl='', string=tagElement.text) for tagElement in elements[1]] if elements[
@@ -177,13 +140,14 @@ def getInfosByElements(elements):
 
 
 def getRecruitInfo(recruitInfoUrl):
-    # group = recruitInfoUrl['jobGroup']
-    # url = recruitInfoUrl['url']
-    pattern = '[^0-9\n]'
-    group = recruitInfoUrl[0]
-    url = recruitInfoUrl[1].strip()
-    recruitInfoId =  re.sub(pattern=pattern, repl='', string=url)
-    print(group, url)
+    print(recruitInfoUrl)
+
+    pattern = '[^0-9]'
+    group = recruitInfoUrl['jobGroup']
+    url = recruitInfoUrl['url']
+    # group = recruitInfoUrl[0]
+    # url = recruitInfoUrl[1].strip()
+    recruitInfoId = re.sub(pattern=pattern, repl='', string=url)
 
     try:
         driver = connectWebDriver(url)
@@ -203,36 +167,21 @@ def getRecruitInfo(recruitInfoUrl):
     contents.append(deadline)
     contents.append(workArea)
 
-    # introduction = []
-    # introduction.append(recruitInfoId)
-    # introduction.extend(detailsNouns[0])
-    # main_task = []
-    # main_task.append(recruitInfoId)
-    # main_task.extend(detailsNouns[1])
-    # requirement = []
-    # requirement.append(recruitInfoId)
-    # requirement.extend(detailsNouns[2])
-    # preference = []
-    # preference.append(recruitInfoId)
-    # preference.extend(detailsNouns[3])
-    # benefit = []
-    # benefit.append(recruitInfoId)
-    # benefit.extend(detailsNouns[4])
-
+    REQUIRED = [recruitInfoId,  region, company, workArea]
     with open('data/recruitInfo/origin.csv', 'a', encoding='utf-8-sig', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(contents)
     with open('data/recruitInfo/tag.csv', 'a', encoding='utf-8-sig', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow([recruitInfoId]+tags)
+        writer.writerow(REQUIRED+tags)
     # 회사소개
     with open('data/recruitInfo/introduction.csv', 'a', encoding='utf-8-sig', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow([recruitInfoId]+detailsNouns[0])
+        writer.writerow(REQUIRED+detailsNouns[0])
     # 주요업무
     with open('data/recruitInfo/main_task.csv', 'a', encoding='utf-8-sig', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow([recruitInfoId]+detailsNouns[1])
+        writer.writerow(REQUIRED+detailsNouns[1])
     # 자격요건
     with open('data/recruitInfo/requirement.csv', 'a', encoding='utf-8-sig', newline='') as file:
         writer = csv.writer(file)
@@ -240,38 +189,14 @@ def getRecruitInfo(recruitInfoUrl):
     # 우대사항
     with open('data/recruitInfo/preference.csv', 'a', encoding='utf-8-sig', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow([recruitInfoId]+detailsNouns[3])
+        writer.writerow(REQUIRED+detailsNouns[3])
     # 복지 및 혜택
     with open('data/recruitInfo/benefit.csv', 'a', encoding='utf-8-sig', newline='') as file:
         writer = csv.writer(file)
-        writer.writerow([recruitInfoId]+detailsNouns[4])
+        writer.writerow(REQUIRED+detailsNouns[4])
     print('완료!')
     driver.quit()
 
-
-def scrapRecruitList(groups):
-    origin_headers = ['직군', 'url']
-    with open('data/recruitInfoList.csv', 'w', encoding='utf-8-sig', newline='') as file:
-        writer = csv.writer(file)
-        writer.writerow(origin_headers)
-
-    recruitInfosByGroup = manager.list()
-    with closing(Pool(processes=5)) as pool:
-        pool.starmap(getRecruitInfoList, zip(groups, repeat(recruitInfosByGroup)))
-
-    print('직군별 채용공고리스트 url 저장 완료!')
-    return recruitInfosByGroup
-
-
-def openJsonFile(fileDir):
-    with open(fileDir, 'w', encoding='UTF-8') as file:
-        file.writelines('[\n')
-
-
-def closeJsonFile(fileDir):
-    with open(fileDir, 'a', encoding='UTF-8') as file:
-        file.writelines([item for item in file[:-1]])
-        file.write(']')
 
 
 def scrapRecruitInfo(recruitInfoURLs):
@@ -300,7 +225,7 @@ def scrapRecruitInfo(recruitInfoURLs):
 
     # allRecruitInfo = manager.list()
     openJsonFile('data/logs/RecruitInfoError.json')
-    with closing(Pool(processes=3)) as pool:
+    with closing(Pool(processes=5)) as pool:
         pool.starmap(getRecruitInfo, zip(recruitInfoURLs))
         print('채용상세정보 수집 모두 완료!')
 
@@ -310,18 +235,19 @@ def scrapRecruitInfo(recruitInfoURLs):
 if __name__ == '__main__':
 
     manager = Manager()
-    # print('---------채용직군---------------------------')
-    # jobGroups = getJobGroups()
-    #
-    # print('---------채용공고리스트----------------------')
-    # recruitInfosByGroup = scrapRecruitList(jobGroups)
+    print('---------채용직군---------------------------')
+    jobGroups = getJobGroups()
 
-    print('---------채용공고---------------------------')
+    print('---------채용공고리스트----------------------')
+    recruitInfosByGroup = scrapRecruitList(jobGroups)
+    #
+    # print('---------채용공고---------------------------')
     # scrapRecruitInfo()
 
     # recruitInfosByGroup = readDB('recruitInfoUrl')
-    with open('data/recruitInfoList.csv', 'r', encoding='utf-8-sig', newline='') as file:
-        recruitInfosByGroup = [line.split(',') for line in file]
-    # print(recruitInfosByGroup[1:])
+    # with open('data/recruitInfoList.csv', 'r', encoding='utf-8-sig', newline='') as file:
+    #     recruitInfosByGroup = [line.split(',') for line in file]
+    # print(recruitInfosByGroup)
     # recruitInfosByGroup = [['프론트엔드 개발자','https://www.wanted.co.kr/wd/42882']]
+    # recruitInfosByGroup =[{'jobGroup': '프론트엔드 개발자', 'url': 'https://www.wanted.co.kr/wd/43046'}]
     scrapRecruitInfo(recruitInfosByGroup)
